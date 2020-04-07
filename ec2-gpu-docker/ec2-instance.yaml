@@ -4,7 +4,6 @@ Parameters:
   Subnet:
     Description: The EC2 Instance will be launched in this subnet
     Type: AWS::EC2::Subnet::Id
-    Default: subnet-05a75008f0efc4390
   AMIid:
     Description: Image ID
     Type: AWS::EC2::Image::Id
@@ -77,8 +76,8 @@ Resources:
             # Start cfn-hup daemon so that it will keep listening to any changes to EC2 Instance Metadata.
             /usr/local/bin/cfn-hup || error_exit 'Failed to start cfn-hup'
 
-            # Install packages ##
-            apt-get install -y htop docker.io docker-compose git mesa-utils
+            # Install and setup the instance... ##
+            curl -o ~/instanceSetup.sh
 
-            # As a last step, signal the stack
+            # As a last step, signal the stack...
             /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource ServerInstance --region ${AWS::Region}
