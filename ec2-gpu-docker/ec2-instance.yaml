@@ -23,7 +23,7 @@ Resources:
       ResourceSignal:
         Timeout: PT10M
     Metadata:
-      Comment: "Deploy Applications to the servers"
+      Comment: "GPU Server"
       AWS::CloudFormation::Init:
         config:
             files:
@@ -55,7 +55,7 @@ Resources:
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
-            VolumeSize: 120
+            VolumeSize: 10
       UserData:
         Fn::Base64:
           !Sub |
@@ -76,8 +76,9 @@ Resources:
             # Start cfn-hup daemon so that it will keep listening to any changes to EC2 Instance Metadata.
             /usr/local/bin/cfn-hup || error_exit 'Failed to start cfn-hup'
 
-            # Install and setup the instance... ##
-            curl -o ~/instanceSetup.sh
+            # Install and setup the instance ##
+            curl -o ~/instanceSetup.sh https://raw.githubusercontent.com/pablods90/aws-cloudformation-samples/master/ec2-gpu-docker/scripts/instanceSetup.sh
+            chmod +x ~/instanceSetup.sh && ~/instanceSetup.sh
 
             # As a last step, signal the stack...
             /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource ServerInstance --region ${AWS::Region}
