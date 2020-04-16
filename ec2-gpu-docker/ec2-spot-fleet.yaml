@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for EC2 instance
+Parameters:
+  Subnet:
+    Description: The EC2 Instance will be launched in this subnet
+    Type: AWS::EC2::Subnet::Id
+  AMIid:
+    Description: Image ID
+    Type: AWS::EC2::Image::Id
+    Default: ami-07ebfd5b3428b6f4d
+  Keypair:
+    Description: Key pair name
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: EC2_private
+  InstanceType:
+    Type: String
+    Default: g3s.xlarge
+
+Resources:
+
+  ###
+  # Spot fleet
+  ##
+  SpotFleet:
+    Type: AWS::EC2::SpotFleet
+    Metadata:
+      Comment: "GPU Server"
+      AWS::CloudFormation::Init:
+        config:
+            files:
+                "/etc/cfn/cfn-hup.conf":
+                  content: !Sub |
+                    [main]
+                    stack=${AWS::StackId}
+                    region=${AWS::Region}
+                    interval=3
+                  mode: "000400"
+                  owner: "root"
+                  group: "root"
+
+                "/etc/cfn/hooks.d/cfn-auto-reloader.conf":
+                  content: !Sub |
+                    [cfn-auto-reloader-hook]
+                    triggers=post.update
+                    path=Resources.MyVMInstance.Metadata.AWS::CloudFormation::Init
+                    action=/usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource MyVMInstance --region ${AWS::Region}
+                  mode: "000400"
+                  owner: "root"
+                  group: "root"
+    Properties:
+      SpotFleetRequestConfigData:
+        TargetCapacity: 1
+        Type: maintain
+        ReplaceUnhealthyInstances: True
+        AllocationStrategy: lowestPrice
+        InstanceInterruptionBehavior: stop
+        LaunchTemplateConfigs:
+        - LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref LaunchTemplate
+            #Version: 1
+        #SpotPrice: '1000'
+        #IamFleetRole: !GetAtt [IAMFleetRole, Arn]
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref AMIid
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref Keypair
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 10
+        NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref Subnet
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash -xe
+
+              # Update && upgrade
+              apt-get update && apt-get -y upgrade
+
+              ## CFN Initialization ##
+
+              # Install scripts
+              apt-get -y install python-pip
+              pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+
+              # Start cfn-init to Install all Metadata content (pacakges, sources, files, commands and services )
+              /usr/local/bin/cfn-init -s ${AWS::StackId} -r ServerInstance --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
+
+              # Start cfn-hup daemon so that it will keep listening to any changes to EC2 Instance Metadata.
+              /usr/local/bin/cfn-hup || error_exit 'Failed to start cfn-hup'
+
+              # Install and setup the instance ##
+              curl -o ~/instanceSetup.sh https://raw.githubusercontent.com/pablods90/aws-cloudformation-samples/master/ec2-gpu-docker/scripts/instanceSetup.sh
+              chmod +x ~/instanceSetup.sh && ~/instanceSetup.sh
+
+              # As a last step, signal the stack...
+              /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource SpotFleet --region ${AWS::Region}
+
+
+  NewVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      Size: 120
+      Encrypted: false
+      VolumeType: gp2
+      MultiAttachEnabled: True
+      AvailabilityZone: !GetAtt Ec2Instance.AvailabilityZone
