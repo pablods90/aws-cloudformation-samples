@@ -37,3 +37,4 @@ apt-get -y install cuda-drivers cuda
 # Post installation steps...
 ##
 sed -i "/PATH=/c\PATH=/usr/local/cuda-10.2/bin:/usr/local/cuda-10.2/NsightCompute-2019.1:$PATH" /etc/environment
+echo export $(cat /etc/environment | grep PATH) >> /etc/profile
