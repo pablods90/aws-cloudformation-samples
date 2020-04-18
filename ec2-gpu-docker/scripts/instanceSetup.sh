@@ -7,6 +7,7 @@ apt-get update && apt-get -y upgrade
 echo -e "Installing packages..."
 apt-get install -y  linux-headers-$(uname -r) \
                     htop \
+                    unzip \
                     docker.io \
                     docker-compose \
                     git \
