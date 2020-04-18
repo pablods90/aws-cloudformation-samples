@@ -35,7 +35,20 @@ echo -e "Install driver ..."
 apt-get -y install cuda-drivers cuda
 
 ###
+# Install NVIDIA container tooklit / https://github.com/NVIDIA/nvidia-docker
+##
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
+   tee /etc/apt/sources.list.d/nvidia-docker.list
+echo -e "Install container toolkit ..."
+apt-get -y install nvidia-container-toolkit
+
+###
 # Post installation steps...
 ##
 sed -i "/PATH=/c\PATH=/usr/local/cuda-10.2/bin:/usr/local/cuda-10.2/NsightCompute-2019.1:$PATH" /etc/environment
 echo export $(cat /etc/environment | grep PATH) >> /etc/profile
+
+echo -e "Restarting docker engine..."
+systemctl restart docker
