@@ -32,7 +32,7 @@ echo -e "Update repositories ..."
 apt-get update
 
 echo -e "Install driver ..."
-apt-get -y install cuda-drivers cuda nvidia-cuda-toolkit
+apt-get -y install cuda-drivers cuda
 
 ###
 # Post installation steps...
