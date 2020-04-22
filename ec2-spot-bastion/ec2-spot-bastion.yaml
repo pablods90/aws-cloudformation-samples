@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: EC2 Spot bastion host
+
+Parameters:
+
+  Subnet:
+    Description: The EC2 Instance will be launched in this subnet.
+    Type: 'List<AWS::EC2::Subnet::Id>'
+
+  VPC:
+    Description: The EC2 Instance will be launched in this VPC.
+    Type: AWS::EC2::VPC::Id
+
+  AMIid:
+    Description: AMI ID.
+    Type: AWS::EC2::Image::Id
+    Default: ami-0323c3dd2da7fb37d
+
+  Keypair:
+    Description: SSH Key pair.
+    Type: AWS::EC2::KeyPair::KeyName
+
+  InstanceType:
+    Type: String
+    Default: t3.large
+
+  SourceIP:
+    Type: String
+    Default: '0.0.0.0/0'
+
+  TheHostname:
+    Type: String
+    Default: 'the-bastion-host'
+
+Resources:
+
+  ###
+  # ASG Bastion fleet
+  ##
+  ASGSpotFlet:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    CreationPolicy:
+      AutoScalingCreationPolicy:
+        MinSuccessfulInstancesPercent: 100
+      ResourceSignal:
+        Count: 1
+        Timeout: PT10M
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: 1
+        MinInstancesInService: 0
+        MinSuccessfulInstancesPercent: 100
+        PauseTime: PT10M
+        WaitOnResourceSignals: true
+    Metadata:
+      Comment: "Spot Bastion host"
+      AWS::CloudFormation::Init:
+        config:
+            files:
+                "/etc/cfn/cfn-hup.conf":
+                  content: !Sub |
+                    [main]
+                    stack=${AWS::StackId}
+                    region=${AWS::Region}
+                    interval=3
+                  mode: "000400"
+                  owner: "root"
+                  group: "root"
+
+                "/etc/cfn/hooks.d/cfn-auto-reloader.conf":
+                  content: !Sub |
+                    [cfn-auto-reloader-hook]
+                    triggers=post.update
+                    path=Resources.MyVMInstance.Metadata.AWS::CloudFormation::Init
+                    action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource MyVMInstance --region ${AWS::Region}
+                  mode: "000400"
+                  owner: "root"
+                  group: "root"
+    Properties:
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          # Configuring here for 'Full Spot Fleet'
+          OnDemandAllocationStrategy: prioritized
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: lowest-price
+          # SpotInstancePools: Integer
+          # SpotMaxPrice: String
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ASGSpotFletLT
+            Version: !GetAtt ASGSpotFletLT.LatestVersionNumber
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      # AZs -> choose either 'VPCZoneIdentifier' or 'AvailabilityZones'
+      VPCZoneIdentifier: !Ref Subnet
+      #AvailabilityZones:
+      #  Fn::GetAZs: ""
+
+  ###
+  # ASG Spot fleet Launch Template
+  ##
+  ASGSpotFletLT:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref AMIid
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref Keypair
+        SecurityGroupIds: [ !Ref ASGSpotFletSG ]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 25
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash -xe
+
+              # Update && upgrade
+              apt-get update && apt-get -y upgrade
+
+              ## CFN Initialization ##
+
+              # Install scripts
+              apt-get -y install python-pip
+              pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+
+              # Start cfn-init to Install all Metadata content (pacakges, sources, files, commands and services )
+              /usr/local/bin/cfn-init -s ${AWS::StackId} -r ASGSpotFlet --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
+
+              # Start cfn-hup daemon so that it will keep listening to any changes to EC2 Instance Metadata.
+              /usr/local/bin/cfn-hup || error_exit 'Failed to start cfn-hup'
+
+              # Install and setup the instance ##
+              apt-get install -y  linux-headers-$(uname -r) \
+                                  htop \
+                                  unzip \
+                                  docker.io \
+                                  docker-compose \
+                                  git \
+                                  mesa-utils \
+                                  gcc \
+                                  curl \
+                                  telnet
+
+              # Change hostname
+              hostname ${TheHostname}
+              echo ${TheHostname} > /etc/hostname
+
+              # As a last step, signal the stack...
+              /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource ASGSpotFlet --region ${AWS::Region}
+
+  ###
+  # ASG Spot fleet SG
+  ##
+  ASGSpotFletSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allowed Ports
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SourceIP
+
+  ###
+  # EIP
+  ##
+  BastionEIP:
+    Type: AWS::EC2::EIP
