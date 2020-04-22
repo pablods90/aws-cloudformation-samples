@@ -14,7 +14,6 @@ Parameters:
   AMIid:
     Description: AMI ID.
     Type: AWS::EC2::Image::Id
-    Default: ami-0323c3dd2da7fb37d
 
   Keypair:
     Description: SSH Key pair.
@@ -72,7 +71,7 @@ Resources:
                     [cfn-auto-reloader-hook]
                     triggers=post.update
                     path=Resources.MyVMInstance.Metadata.AWS::CloudFormation::Init
-                    action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource MyVMInstance --region ${AWS::Region}
+                    action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource ASGSpotFlet --region ${AWS::Region}
                   mode: "000400"
                   owner: "root"
                   group: "root"
@@ -125,7 +124,7 @@ Resources:
 
               # Install scripts
               apt-get -y install python-pip
-              pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+              pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz awscli
 
               # Start cfn-init to Install all Metadata content (pacakges, sources, files, commands and services )
               /usr/local/bin/cfn-init -s ${AWS::StackId} -r ASGSpotFlet --region ${AWS::Region} || error_exit 'Failed to run cfn-init'
@@ -149,6 +148,10 @@ Resources:
               hostname ${TheHostname}
               echo ${TheHostname} > /etc/hostname
 
+              # Associate the EIP
+              INSTANCE_ID=$(curl --silent http://169.254.169.254/latest/meta-data/instance-id)
+              aws ec2 associate-address --instance-id "$INSTANCE_ID" --AllocationId=${BastionEIP.AllocationId}
+
               # As a last step, signal the stack...
               /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource ASGSpotFlet --region ${AWS::Region}
 
@@ -171,3 +174,53 @@ Resources:
   ##
   BastionEIP:
     Type: AWS::EC2::EIP
+
+  ###
+  # IAM / Security configuration
+  ##
+  BastionInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: BastionInstanceRole
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Sid: EIPAllocation
+            Effect: Allow
+            Action:
+            - ec2:AssociateAddress
+            - ec2:DisassociateAddress
+            Resource: '*'
+          # - Sid: S3Access
+          #   Effect: Allow
+          #   Action:
+          #   - s3:Get*
+          #   - s3:List*
+          #   - s3:Head*
+          #   Resource: '*'
+
+  BastionnstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+      - !Ref BastionInstanceRole
+
+###
+# Outputs
+##
+Outputs:
+  BastionEIPAddress:
+    Description: The IP address of the Bastion Host.
+    Value: !Ref BastionEIP
