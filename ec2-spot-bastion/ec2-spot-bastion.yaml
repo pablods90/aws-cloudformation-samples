@@ -108,6 +108,8 @@ Resources:
         InstanceType: !Ref InstanceType
         KeyName: !Ref Keypair
         SecurityGroupIds: [ !Ref ASGSpotFletSG ]
+        IamInstanceProfile:
+          Name: !Ref BastionnstanceProfile
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -118,7 +120,11 @@ Resources:
               #!/bin/bash -xe
 
               # Update && upgrade
-              apt-get update && apt-get -y upgrade
+              apt-get update && DEBIAN_FRONTEND=noninteractive \
+                                apt-get -y \
+                                -o Dpkg::Options::="--force-confdef" \
+                                -o Dpkg::Options::="--force-confold" \
+                                upgrade
 
               ## CFN Initialization ##
 
