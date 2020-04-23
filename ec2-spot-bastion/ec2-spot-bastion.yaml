@@ -148,7 +148,8 @@ Resources:
                                   mesa-utils \
                                   gcc \
                                   curl \
-                                  telnet
+                                  telnet \
+                                  nmap
 
               # Change hostname
               hostname ${TheHostname}
@@ -156,7 +157,7 @@ Resources:
 
               # Associate the EIP
               INSTANCE_ID=$(curl --silent http://169.254.169.254/latest/meta-data/instance-id)
-              aws ec2 associate-address --instance-id "$INSTANCE_ID" --AllocationId=${BastionEIP.AllocationId}
+              aws --region ${AWS::Region} ec2 associate-address --instance-id "$INSTANCE_ID" --allocation-id ${BastionEIP.AllocationId}
 
               # As a last step, signal the stack...
               /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource ASGSpotFlet --region ${AWS::Region}
