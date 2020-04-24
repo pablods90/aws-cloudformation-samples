@@ -146,7 +146,7 @@ Resources:
         KeyName: !Ref Keypair
         SecurityGroupIds: [ !Ref ASGSpotFletSG ]
         IamInstanceProfile:
-          Name: !Ref BastionnstanceProfile
+          Name: !Ref BastionInstanceProfile
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -260,12 +260,30 @@ Resources:
           #   - s3:Head*
           #   Resource: '*'
 
-  BastionnstanceProfile:
+  BastionInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       Path: /
       Roles:
       - !Ref BastionInstanceRole
+
+  ###
+  # Persistent Storage //TODO
+  ##
+  # BastionEBSVolume:
+  #   Type: AWS::EC2::Volume
+  #   Properties:
+  #     # AutoEnableIO: Boolean
+  #     # AvailabilityZone: String
+  #     # Encrypted: Boolean
+  #     # Iops: Integer
+  #     # KmsKeyId: String
+  #     # MultiAttachEnabled: Boolean
+  #     Size: 100
+  #     # SnapshotId: String
+  #     # Tags:
+  #     #   - Tag
+  #     # VolumeType: String
 
 ###
 # Outputs
