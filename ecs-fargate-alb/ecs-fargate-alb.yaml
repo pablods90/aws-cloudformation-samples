@@ -26,10 +26,16 @@ Parameters:
     Default: 80
     Description: What port number the application inside the docker container is binding to
 
-  DesiredCount:
+  MinContainers:
     Type: Number
-    Default: 2
-    Description: How many copies of the service task to run
+    Default: 1
+    Description: How many copies of the service task to run, a minimum
+
+  MaxContainers:
+    Type: Number
+    Default: 5
+    Description: How many copies of the service task to run, at maximum
+
 
 Resources:
 
@@ -74,7 +80,7 @@ Resources:
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 75
-      DesiredCount: !Ref 'DesiredCount'
+      DesiredCount: !Ref MinContainers
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
@@ -130,6 +136,10 @@ Resources:
       Port: !Ref 'ContainerPort'
       Protocol: HTTP
       VpcId: !Ref TheVPCID
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60
+
 
   ###
   ## Scaling
@@ -143,7 +153,7 @@ Resources:
         DisableScaleIn: False
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
-        ScaleInCooldown: 300
+        ScaleInCooldown: 120
         ScaleOutCooldown: 60
         TargetValue: 50
 
@@ -151,8 +161,8 @@ Resources:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     DependsOn: Service
     Properties:
-      MaxCapacity: 5
-      MinCapacity: 1
+      MinCapacity: !Ref MinContainers
+      MaxCapacity: !Ref MaxContainers
       ResourceId: !Sub service/${ECSCluster}/${AWS::StackName}-service
       RoleARN: !GetAtt ScalingRole.Arn
       ScalableDimension: ecs:service:DesiredCount
@@ -194,3 +204,8 @@ Resources:
                 - cloudwatch:SetAlarmState
                 - cloudwatch:DeleteAlarms
               Resource: '*'
+
+Outputs:
+  AppURL:
+    Description: URL of the Load Balancer
+    Value: !GetAtt TheBalancer.DNSName
