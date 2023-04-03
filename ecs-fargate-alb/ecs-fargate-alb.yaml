@@ -196,7 +196,7 @@ Resources:
               Action:
                 - application-autoscaling:*
                 - ecs:RunTask
-                - ecs:UpdateSerice
+                - ecs:UpdateService
                 - ecs:DescribeServices
                 - cloudwatch:PutMetricAlarm
                 - cloudwatch:DescribeAlarms
