@@ -1,0 +1,189 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Fargate service with Application Load Balancer
+
+Parameters:
+
+  TheVPCID:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC
+
+  TheSubnets:
+    Type: 'List<AWS::EC2::Subnet::Id>'
+    Description: List of subnets
+
+  WebContainerImageUri:
+    Type: String
+    Default: nginx
+    Description: The url of a docker image that contains the application process that will handle the traffic for this service
+
+  ContainerPort:
+    Type: Number
+    Default: 80
+    Description: What port number the application inside the docker container is binding to
+
+  NumOfContainers:
+    Type: Number
+    Default: 2
+    Description: How many copies of the service task to run
+
+Resources:
+
+  ##
+  # General resources
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub  ${AWS::StackName}-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - Base: 0
+          CapacityProvider: FARGATE
+          Weight: 1
+
+  ##
+  # ECS Worker Service
+  TaskDefinitionWorkerService:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-worker-service
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Name: !Sub ${AWS::StackName}-service
+          Cpu: 256
+          Memory: 512
+          Image: ubuntu
+          Command:
+           - /bin/sh
+           - -c
+           - 'sleep 300 && touch /tmp/testfile && sleep infinity'
+          HealthCheck:
+              Command:
+                  - "CMD-SHELL"
+                  - "cat /tmp/testfile"
+              Interval: 5
+              Retries: 2
+              Timeout: 3
+              StartPeriod: 300
+
+  WorkerService:
+    Type: AWS::ECS::Service
+    DependsOn: TheListener
+    Properties:
+      ServiceName: !Sub ${AWS::StackName}-worker-service
+      Cluster: !Ref ECSCluster
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 75
+      DesiredCount: !Ref NumOfContainers
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups: [!Ref SecurityGroup]
+          Subnets: !Ref TheSubnets
+      TaskDefinition: !Ref 'TaskDefinitionWorkerService'
+
+  ##
+  # ECS Web Service
+  TaskDefinitionWebService:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-service
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Name: !Sub ${AWS::StackName}-service
+          Cpu: 256
+          Memory: 512
+          Image: !Ref 'WebContainerImageUri'
+          PortMappings:
+            - ContainerPort: !Ref 'ContainerPort'
+
+  WebService:
+    Type: AWS::ECS::Service
+    DependsOn: 
+      - TheListener
+      - WorkerService
+    Properties:
+      ServiceName: !Sub ${AWS::StackName}-web-service
+      Cluster: !Ref ECSCluster
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 75
+      DesiredCount: !Ref NumOfContainers
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups: [!Ref SecurityGroup]
+          Subnets: !Ref TheSubnets
+      TaskDefinition: !Ref 'TaskDefinitionWebService'
+      HealthCheckGracePeriodSeconds: 120
+      LoadBalancers:
+        - ContainerName: !Sub ${AWS::StackName}-service
+          ContainerPort: !Ref 'ContainerPort'
+          TargetGroupArn: !Ref 'TargetGroup'
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allowed Ports
+      VpcId: !Ref TheVPCID
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          CidrIp: '0.0.0.0/0'
+
+  ##
+  # Load Balancer for Web Service
+  TheBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: !Sub ${AWS::StackName}-alb
+      Scheme: internet-facing
+      Subnets: !Ref TheSubnets
+      Type: application
+      SecurityGroups: [!Ref SecurityGroup]
+
+  TheListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref TheBalancer
+      Port: 80
+      Protocol: HTTP
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTP
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      TargetType: ip
+      Name: !Sub ${AWS::StackName}-target-grpup
+      Port: !Ref 'ContainerPort'
+      Protocol: HTTP
+      VpcId: !Ref TheVPCID
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60
+
+Outputs:
+  AppURL:
+    Description: URL of the Load Balancer
+    Value: !GetAtt TheBalancer.DNSName
