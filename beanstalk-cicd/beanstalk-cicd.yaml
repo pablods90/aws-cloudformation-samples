@@ -1,61 +1,64 @@
-Description: This template deploys a CI/CD pipeline to deploy an ElasticBeanstalk Docker Application
+Description: This template deploys a CI/CD pipeline for an ElasticBeanstalk Docker Application
 
 Parameters:
 
   ProjectName:
     Type: String
-    Description: Specify the name of the pipeline
+    Description: Specify the name of the project
     Default: beanstalk-cicd
   
   ElasticBeanStalkApplicationName:
     Type: String
-    Description: "Specify the name of the already created ElasticBeanstalk Application"
+    Description: Name of the already created ElasticBeanstalk Application
     Default: docker-test
 
   ElasticBeanStalkApplicationEnvironmentName:
     Type: String
-    Description: "Specify the name of the already created ElasticBeanstalk Application environment name"
+    Description: Name of the already created ElasticBeanstalk Application environment name
     Default: docker-test
   
   GitHubRepo:
     Type: String
-    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    Description: Name of the GitHub repository where the application code is stored
     Default: aws-cloudformation-samples
 
   GitHubRepoOwner:
     Type: String
-    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    Description: Name of the GitHub user who owns the repository
     Default: pablods90
 
   GitHubBranch:
     Type: String
-    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    Description: Name of the GitHub branch that will trigger the builds
     Default: master
 
   GitHubOAuthToken:
     Type: String
-    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    Description: Auth token for allowing AWS Code Pipeline to pull the code - https://github.com/settings/tokens
     NoEcho: true
     AllowedPattern: '[A-Za-z0-9_]*'
-
-  ECRRepoName:
-    Type: String
-    Description: "Specify the name of the ECR repository where the docker images are pushed"
-    Default: beanstalk-cicd-ecr
 
   
 Resources:   
 
+  ##
+  # Store Code Pipeline artifacts
   ArtifactBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
 
+  ##
+  # Store Docker images for Beanstalk
   ECRRepository:
     Type: AWS::ECR::Repository
+    DeletionPolicy: Delete
     Properties:
-      RepositoryName: !Ref ECRRepoName
+      RepositoryName: !Ref ProjectName
       ImageScanningConfiguration:
         ScanOnPush: true      
 
+  ##
+  # Pipeline & IAM permissions
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -103,74 +106,6 @@ Resources:
                   - ecr:*
                   - logs:*
                 Resource: '*'
-
-  CodeBuildServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Action:
-              - sts:AssumeRole
-            Principal:
-              Service:
-                - codebuild.amazonaws.com
-  CodeBuildServicePolicy:
-    Type: AWS::IAM::Policy
-    Properties:
-      PolicyName: CodeBuildServicePolicy
-      Roles:
-        - !Ref CodeBuildServiceRole
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Action:
-              - logs:CreateLogGroup
-              - logs:CreateLogStream
-              - logs:PutLogEvents
-            Resource: "arn:aws:logs:*:*:*"
-          - Effect: Allow
-            Action:
-              - ecr:*
-            Resource: "*"
-          - Effect: Allow
-            Action:
-              - s3:GetObject
-              - s3:GetObjectVersion
-              - s3:PutObject
-            Resource:
-              - !Sub "arn:aws:s3:::codepipeline-${AWS::Region}-*/*"
-              - !Sub "arn:aws:s3:::${ArtifactBucket}/*"
-  CodeBuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Ref ProjectName
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        # ComputeType options: BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE
-        ComputeType: BUILD_GENERAL1_SMALL
-        # Run `aws codebuild list-curated-environment-images` for a complete list of images provided.
-        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
-        EnvironmentVariables:
-          - Name: BUILD_ARTIFACT_BUCKET
-            Value: !Ref ArtifactBucket
-          - Name: IMAGE_TAG
-            Value: latest
-          - Name: IMAGE_REPO_NAME
-            Value: !Ref ECRRepoName
-          - Name: AWS_ACCOUNT_ID
-            Value: !Ref AWS::AccountId
-          - Name: AWS_DEFAULT_REGION
-            Value: !Ref AWS::Region
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: beanstalk-cicd/buildspec.yaml
-      TimeoutInMinutes: 10
   Pipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
@@ -224,6 +159,75 @@ Resources:
                 EnvironmentName: !Ref ElasticBeanStalkApplicationEnvironmentName
               RunOrder: 1
               Name: Deploy
+
+  ##
+  # CodeBuild & IAM permissions
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+  CodeBuildServicePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CodeBuildServicePolicy
+      Roles:
+        - !Ref CodeBuildServiceRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "arn:aws:logs:*:*:*"
+          - Effect: Allow
+            Action:
+              - ecr:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+            Resource:
+              - !Sub "arn:aws:s3:::codepipeline-${AWS::Region}-*/*"
+              - !Sub "arn:aws:s3:::${ArtifactBucket}/*"
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref ProjectName
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        # Run `aws codebuild list-curated-environment-images` for a complete list of images provided.
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
+        EnvironmentVariables:
+          - Name: BUILD_ARTIFACT_BUCKET
+            Value: !Ref ArtifactBucket
+          - Name: IMAGE_TAG
+            Value: latest
+          - Name: IMAGE_REPO_NAME
+            Value: !Ref ProjectName
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: beanstalk-cicd/buildspec.yaml
+      TimeoutInMinutes: 15
 
 Outputs:
   PipelineUrl:
