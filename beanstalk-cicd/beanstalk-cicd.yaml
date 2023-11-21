@@ -36,8 +36,6 @@ Parameters:
     Type: String
     Description: "Specify the name of the ECR repository where the docker images are pushed"
     NoEcho: true
-    MinLength: 93
-    MaxLength: 93
     AllowedPattern: '[A-Za-z0-9_]*'
 
   ECRRepoName:
@@ -57,35 +55,6 @@ Resources:
       RepositoryName: !Ref ECRRepoName
       ImageScanningConfiguration:
         ScanOnPush: true      
-
-  PermissionForEventsToInvokePipeline:
-    Type: AWS::IAM::Policy
-    Properties:
-      PolicyName: EventsRolePolicy
-      Roles:
-        - !Ref CodePipelineEventsRole
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Resource: "*"
-            Effect: Allow
-            Action:
-              - codepipeline:*
-
-  CodePipelineEventsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - events.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      Path: /
-
 
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
@@ -164,6 +133,10 @@ Resources:
             Resource: "arn:aws:logs:*:*:*"
           - Effect: Allow
             Action:
+              - ecr:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
               - s3:GetObject
               - s3:GetObjectVersion
               - s3:PutObject
@@ -182,7 +155,7 @@ Resources:
         # ComputeType options: BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE
         ComputeType: BUILD_GENERAL1_SMALL
         # Run `aws codebuild list-curated-environment-images` for a complete list of images provided.
-        Image: aws/codebuild/amazonlinux2-x86_64-standard
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
         EnvironmentVariables:
           - Name: BUILD_ARTIFACT_BUCKET
             Value: !Ref ArtifactBucket
