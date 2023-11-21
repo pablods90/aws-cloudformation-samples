@@ -1,0 +1,257 @@
+Description: This template deploys a CI/CD pipeline to deploy an ElasticBeanstalk Docker Application
+
+Parameters:
+
+  ProjectName:
+    Type: String
+    Description: Specify the name of the pipeline
+    Default: beanstalk-cicd
+  
+  ElasticBeanStalkApplicationName:
+    Type: String
+    Description: "Specify the name of the already created ElasticBeanstalk Application"
+    Default: docker-test
+
+  ElasticBeanStalkApplicationEnvironmentName:
+    Type: String
+    Description: "Specify the name of the already created ElasticBeanstalk Application environment name"
+    Default: docker-test
+  
+  GitHubRepo:
+    Type: String
+    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    Default: aws-cloudformation-samples
+
+  GitHubRepoOwner:
+    Type: String
+    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    Default: pablods90
+
+  GitHubBranch:
+    Type: String
+    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    Default: master
+
+  GitHubOAuthToken:
+    Type: String
+    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    NoEcho: true
+    MinLength: 93
+    MaxLength: 93
+    AllowedPattern: '[A-Za-z0-9_]*'
+
+  ECRRepoName:
+    Type: String
+    Description: "Specify the name of the ECR repository where the docker images are pushed"
+    Default: beanstalk-cicd-ecr
+
+  
+Resources:   
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ECRRepoName
+      ImageScanningConfiguration:
+        ScanOnPush: true      
+
+  PermissionForEventsToInvokePipeline:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: EventsRolePolicy
+      Roles:
+        - !Ref CodePipelineEventsRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Resource: "*"
+            Effect: Allow
+            Action:
+              - codepipeline:*
+
+  CodePipelineEventsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        -
+          PolicyName: AWS-CodePipeline-Service-ebs-sample-codebuild			
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: '*'
+              -
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: '*'
+              -
+                Effect: Allow
+                Action:
+                  - elasticbeanstalk:*
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - autoscaling:*
+                  - cloudwatch:*
+                  - s3:*
+                  - sns:*
+                  - cloudformation:*
+                  - rds:*
+                  - sqs:*
+                  - ecs:*
+                  - ecr:*
+                  - logs:*
+                Resource: '*'
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+  CodeBuildServicePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CodeBuildServicePolicy
+      Roles:
+        - !Ref CodeBuildServiceRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "arn:aws:logs:*:*:*"
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+            Resource:
+              - !Sub "arn:aws:s3:::codepipeline-${AWS::Region}-*/*"
+              - !Sub "arn:aws:s3:::${ArtifactBucket}/*"
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref ProjectName
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        # ComputeType options: BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE
+        ComputeType: BUILD_GENERAL1_SMALL
+        # Run `aws codebuild list-curated-environment-images` for a complete list of images provided.
+        Image: aws/codebuild/amazonlinux2-x86_64-standard
+        EnvironmentVariables:
+          - Name: BUILD_ARTIFACT_BUCKET
+            Value: !Ref ArtifactBucket
+          - Name: IMAGE_TAG
+            Value: latest
+          - Name: IMAGE_REPO_NAME
+            Value: !Ref ECRRepoName
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: beanstalk-cicd/buildspec.yaml
+      TimeoutInMinutes: 10
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: SourceCodeOutputArtifact
+              Configuration:
+                Owner: !Ref GitHubRepoOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubOAuthToken
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: CodeBuild
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: SourceCodeOutputArtifact
+              OutputArtifacts:
+                - Name: BuildOutputArtifact
+              Configuration:
+                ProjectName: !Ref ProjectName
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - InputArtifacts: 
+              - Name: BuildOutputArtifact
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: ElasticBeanstalk
+              Configuration: 
+                ApplicationName: !Ref ElasticBeanStalkApplicationName
+                EnvironmentName: !Ref ElasticBeanStalkApplicationEnvironmentName
+              RunOrder: 1
+              Name: Deploy
+
+Outputs:
+  PipelineUrl:
+    Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${Pipeline}
