@@ -18,3 +18,12 @@ phases:
       - echo Pushing the Docker image...
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
       - echo Done!
+      - echo Packing beanstalk app...
+      - cd ../beanstalk-app
+      - sed -i .bak "s/IMAGE_PROXY/$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG/" docker-compose.yml
+      - cd ..
+
+artifacts:
+  files:
+    - '**/*'
+  base-directory: 'beanstalk-cicd/beanstalk-app/'

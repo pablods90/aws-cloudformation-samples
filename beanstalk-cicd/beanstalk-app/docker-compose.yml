@@ -1,0 +1,18 @@
+version: '3'
+services:
+  nginx-proxy:
+    image: "IMAGE_PROXY"
+    ports:
+      - "80:80"
+    volumes:
+      - "${EB_LOG_BASE_DIR}/nginx-proxy:/var/log/nginx"
+    mem_limit: 128m
+    links:
+      - init-script-container
+  init-script-container:
+    image: "amazonlinux"
+    entrypoint: /root/initscripts/init-amazonlinux.sh
+    command: ["/bin/sh", "-c", "while [ true ]; do echo $${instance_id} >> ~/initscripts/initscript.log && sleep 5; done"]
+    volumes:
+      - "./initscripts:/root/initscripts"
+    mem_limit: 128m
