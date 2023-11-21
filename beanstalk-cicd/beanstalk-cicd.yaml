@@ -216,8 +216,6 @@ Resources:
         EnvironmentVariables:
           - Name: BUILD_ARTIFACT_BUCKET
             Value: !Ref ArtifactBucket
-          - Name: IMAGE_TAG
-            Value: latest
           - Name: IMAGE_REPO_NAME
             Value: !Ref ProjectName
           - Name: AWS_ACCOUNT_ID
